@@ -1,14 +1,15 @@
 """Wappalyzer Agent: Agent responsible for fingerprinting a website."""
-
+import json
 import logging
 import subprocess
-import json
 from typing import Optional, Dict
 
-from ostorlab.agent import agent
+from ostorlab.agent import agent, definitions as agent_definitions
 from ostorlab.agent import message as m
 from ostorlab.agent.kb import kb
+from ostorlab.agent.mixins import agent_persist_mixin as persist_mixin
 from ostorlab.agent.mixins import agent_report_vulnerability_mixin
+from ostorlab.runtimes import definitions as runtime_definitions
 from rich import logging as rich_logging
 
 logging.basicConfig(
@@ -32,8 +33,14 @@ LIB_SELECTOR = 'v3.fingerprint.domain_name.library'
 CWD = '/wappalyzer'
 
 
-class AgentWappalyzer(agent.Agent, agent_report_vulnerability_mixin.AgentReportVulnMixin):
+class AgentWappalyzer(agent.Agent, agent_report_vulnerability_mixin.AgentReportVulnMixin,
+                      persist_mixin.AgentPersistMixin):
     """Agent responsible for fingerprinting a website."""
+
+    def __init__(self, agent_definition: agent_definitions.AgentDefinition,
+                 agent_settings: runtime_definitions.AgentSettings) -> None:
+        agent.Agent.__init__(self, agent_definition, agent_settings)
+        persist_mixin.AgentPersistMixin.__init__(self, agent_settings)
 
     def process(self, message: m.Message) -> None:
         """Starts a Wappalyzer scan, wait for the scan to finish,
@@ -43,6 +50,11 @@ class AgentWappalyzer(agent.Agent, agent_report_vulnerability_mixin.AgentReportV
         """
         logger.info('processing message of selector : %s', message.selector)
         target = self._prepare_target(message)
+
+        if not self.set_add(b'agent_wappalyzer_asset', target):
+            logger.info('target %s/ was processed before, exiting', target)
+            return
+
         fingerprints = self._start_scan(target)
         if fingerprints is not None:
             self._parse_emit_result(target, fingerprints)
@@ -68,9 +80,8 @@ class AgentWappalyzer(agent.Agent, agent_report_vulnerability_mixin.AgentReportV
             url: Target domain name.
         """
         logger.info('Staring a new scan for %s .', url)
-        command = ['node', 'src/drivers/npm/cli.js' , url]
+        command = ['node', 'src/drivers/npm/cli.js', url]
         output = subprocess.run(command, cwd=CWD, capture_output=True, check=False)
-        print(output)
         if output.returncode == 0:
             return json.loads(output.stdout.decode())
         else:
@@ -79,78 +90,48 @@ class AgentWappalyzer(agent.Agent, agent_report_vulnerability_mixin.AgentReportV
     def _parse_emit_result(self, url: str, fingerprints: Dict):
         """After the scan is done, parse the output json file into a dict of the scan findings."""
         for tech in fingerprints.get('technologies', []):
-            slug = tech.get('slug')
             name = tech.get('name')
-            confidence = tech.get('confidence')
             version = tech.get('version')
-            icon = tech.get('icon')
-            website = tech.get('website')
-            cpe = tech.get('cpe')
             categories = tech.get('categories')
-            self._send_detected_fingerprints()
+            if categories:
+                library_type = categories[0]['name']
+            else:
+                library_type = None
+            self._send_detected_fingerprints(url, name, version, library_type)
 
-    def _send_detected_fingerprints(self, domain_name: str, library_name: str, versions: list):
+    def _send_detected_fingerprints(self, url: str, name: str, version: Optional[str], library_type: Optional[str]):
         """Emits the identified fingerprints.
         Args:
-            domain_name: The domain name.
-            library_name: Library name.
-            versions: The versions identified by Wappalyzer scanner.
+            url: The URL when fingerprint is collected.
+            name: Library name.
+            version: The version identified by Wappalyzer scanner.
+            library_type: The first category returned the Wappalyzer scanner.
         """
-        logger.info('found fingerprint %s %s %s', domain_name, library_name, versions)
-        fingerprint_type = FINGERPRINT_TYPE[
-            library_name.lower()] if library_name.lower() in FINGERPRINT_TYPE else DEFAULT_FINGERPRINT
-        if len(versions) > 0:
-            for version in versions:
-                msg_data = {
-                    'domain_name': domain_name,
-                    'library_name': library_name,
-                    'library_version': str(version),
-                    'library_type': fingerprint_type
-                }
-                self.emit(selector=LIB_SELECTOR, data=msg_data)
-                self.report_vulnerability(
-                    entry=kb.Entry(
-                        title=VULNZ_TITLE,
-                        risk_rating=VULNZ_ENTRY_RISK_RATING,
-                        short_description=VULNZ_SHORT_DESCRIPTION,
-                        description=VULNZ_DESCRIPTION,
-                        references={},
-                        security_issue=True,
-                        privacy_issue=False,
-                        has_public_exploit=False,
-                        targeted_by_malware=False,
-                        targeted_by_ransomware=False,
-                        targeted_by_nation_state=False
-                    ),
-                    technical_detail=f'Found library `{library_name}`, version `{str(version)}`, '
-                    f'of type `{fingerprint_type}` in domain `{domain_name}`',
-                    risk_rating=agent_report_vulnerability_mixin.RiskRating.INFO)
-        else:
-            # No version is found.
-            msg_data = {
-                'domain_name': domain_name,
-                'library_name': library_name,
-                'library_version': '',
-                'library_type': fingerprint_type
-            }
-            self.emit(selector=LIB_SELECTOR, data=msg_data)
-            self.report_vulnerability(
-                entry=kb.Entry(
-                    title=VULNZ_TITLE,
-                    risk_rating=VULNZ_ENTRY_RISK_RATING,
-                    short_description=VULNZ_SHORT_DESCRIPTION,
-                    description=VULNZ_DESCRIPTION,
-                    references={},
-                    security_issue=True,
-                    privacy_issue=False,
-                    has_public_exploit=False,
-                    targeted_by_malware=False,
-                    targeted_by_ransomware=False,
-                    targeted_by_nation_state=False
-                ),
-                technical_detail=f'Found library `{library_name}` of type '
-                f'`{fingerprint_type}` in domain `{domain_name}`',
-                risk_rating=agent_report_vulnerability_mixin.RiskRating.INFO)
+        logger.info('found fingerprint %s %s %s %s', url, name, version, library_type)
+        msg_data = {
+            'domain_name': url,
+            'library_name': name,
+            'library_version': version or '',
+            'library_type': library_type or ''
+        }
+        self.emit(selector=LIB_SELECTOR, data=msg_data)
+        self.report_vulnerability(
+            entry=kb.Entry(
+                title=VULNZ_TITLE,
+                risk_rating=VULNZ_ENTRY_RISK_RATING,
+                short_description=VULNZ_SHORT_DESCRIPTION,
+                description=VULNZ_DESCRIPTION,
+                references={},
+                security_issue=True,
+                privacy_issue=False,
+                has_public_exploit=False,
+                targeted_by_malware=False,
+                targeted_by_ransomware=False,
+                targeted_by_nation_state=False
+            ),
+            technical_detail=f'Found library `{name}`, version `{version or "unknown"}`, '
+                             f'of type `{library_type}` in domain `{url}`',
+            risk_rating=agent_report_vulnerability_mixin.RiskRating.INFO)
 
 
 if __name__ == '__main__':
