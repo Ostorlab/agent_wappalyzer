@@ -1,9 +1,22 @@
 kind: Agent
-name: template_agent # Agent name, must be unique by organisation to be published on the store.
-version: 0.0.0
-description: Agent description. # Support for Markdown format.
-in_selectors: # List of input selectors.
-  - v3.healthcheck.ping
-out_selectors: [] # List of output selectors.
-docker_file_path : Dockerfile # Dockerfile path for automated release build.
-docker_build_root : . # Docker build dir for automated release build.
+name: wappalyzer
+version: 0.1.0
+image: images/logo.png
+description: Wappalyzer identifies technologies on websites, such as CMS, web frameworks, ecommerce platforms, JavaScript libraries, analytics tools and more.
+in_selectors:
+ - v3.asset.domain_name
+out_selectors:
+ - v3.fingerprint.domain_name.library
+ - v3.report.vulnerability
+docker_file_path : Dockerfile
+docker_build_root : .
+args:
+ - name: "https"
+   type: "boolean"
+   description: "Target that doesn't specify protocol will use this argument to set the protocol to either http
+    or https."
+   value: true
+ - name: "port"
+   type: "number"
+   description: "Target that doesn't specify port will use this argument to set the target port."
+   value: 443
