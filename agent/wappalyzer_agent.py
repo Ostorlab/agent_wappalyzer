@@ -113,7 +113,8 @@ class AgentWappalyzer(agent.Agent, agent_report_vulnerability_mixin.AgentReportV
             'domain_name': url,
             'library_name': name,
             'library_version': version or '',
-            'library_type': library_type or ''
+            'library_type': library_type or '',
+            'detail': f'Wappalyzer Detected {name} on {url}'
         }
         self.emit(selector=LIB_SELECTOR, data=msg_data)
         self.report_vulnerability(
