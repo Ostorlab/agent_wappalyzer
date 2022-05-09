@@ -61,8 +61,20 @@ description: |
 
 license: Apache-2.0
 source: https://github.com/Ostorlab/agent_wappalyzer
-in_selectors: # List of input selectors.
-  - v3.healthcheck.ping
-out_selectors: [] # List of output selectors.
-docker_file_path : Dockerfile # Dockerfile path for automated release build.
-docker_build_root : . # Docker build dir for automated release build.
+in_selectors:
+ - v3.asset.domain_name
+out_selectors:
+ - v3.fingerprint.domain_name.library
+ - v3.report.vulnerability
+docker_file_path : Dockerfile
+docker_build_root : .
+args:
+ - name: "https"
+   type: "boolean"
+   description: "Target that doesn't specify protocol will use this argument to set the protocol to either http
+    or https."
+   value: true
+ - name: "port"
+   type: "number"
+   description: "Target that doesn't specify port will use this argument to set the target port."
+   value: 443
