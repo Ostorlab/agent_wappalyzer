@@ -36,25 +36,78 @@ OUPUT = '{"urls":{"https://ostorlab.co/":{"status":301},"https://www.ostorlab.co
         '"Miscellaneous"}]}]}'
 
 
-def testAgentWappalyzer_whenDomainNameAsset_returnFingerprintsAndVulnerabilities(scan_message, test_agent, agent_mock,
-                                                                                 agent_persist_mock, fp):
-    """Tests running the agent and emitting vulnerabilities."""
+def testAgentWappalyzer_whenDomainNameAsset_returnFingerprintsAndVulnerabilities(domain_message, wappalyzer_test_agent,
+                                                                                 agent_mock, agent_persist_mock, fp):
+    """Tests running the agent and emitting vulnerabilities for a domain asset."""
+    del agent_persist_mock
     fp.register('node src/drivers/npm/cli.js https://test.ostorlab.co',
                 stdout=OUPUT)
-    test_agent.start()
-    test_agent.process(scan_message)
+    wappalyzer_test_agent.start()
+    wappalyzer_test_agent.process(domain_message)
     assert len(agent_mock) > 0
     assert 'v3.report.vulnerability' in [a.selector for a in agent_mock]
-    assert 'v3.fingerprint.domain_name.library' in [a.selector for a in agent_mock]
+    assert 'v3.fingerprint.domain_name.service.library' in [a.selector for a in agent_mock]
 
 
-def testAgentWappalyzer_whenDomainAlreadyScans_doNothing(scan_message, test_agent, agent_mock, agent_persist_mock, fp):
-    """Tests running the agent and emitting vulnerabilities."""
+def testAgentWappalyzer_whenDomainAlreadyScans_doNothing(domain_message, wappalyzer_test_agent, agent_mock,
+                                                         agent_persist_mock, fp):
+    """Ensure wappalyzer agent does not process the same message multiple times."""
+    del agent_persist_mock
     fp.register('node src/drivers/npm/cli.js https://test.ostorlab.co',
                 stdout=OUPUT)
-    test_agent.start()
-    test_agent.process(scan_message)
+    wappalyzer_test_agent.start()
+    wappalyzer_test_agent.process(domain_message)
     count_first = len(agent_mock)
-    test_agent.process(scan_message)
+    wappalyzer_test_agent.process(domain_message)
     count_second = len(agent_mock)
     assert count_second - count_first == 0
+
+
+def testAgentWappalyzer_whenHTTPSLinkAsset_returnFingerprintsAndVulnerabilities(https_link_message,
+                                                                                wappalyzer_test_agent, agent_mock,
+                                                                                agent_persist_mock, fp):
+    """Ensure wappalyzer agent emits the correct vulnerabilities, and library out message for a link input message.
+    Also ensures the correct compute of the port and schema from the target link: Case of https schema.
+    """
+    del agent_persist_mock
+    fp.register('node src/drivers/npm/cli.js https://ostorlab.co',
+                stdout=OUPUT)
+    wappalyzer_test_agent.start()
+    wappalyzer_test_agent.process(https_link_message)
+    assert len(agent_mock) > 0
+    assert 'v3.report.vulnerability' in [a.selector for a in agent_mock]
+    assert 'v3.fingerprint.domain_name.service.library' in [a.selector for a in agent_mock]
+    assert any(out_msg.data.get('port') == 443 and out_msg.data.get('schema') == 'https' for out_msg in agent_mock)
+
+
+def testAgentWappalyzer_whenHTTPLinkAsset_returnFingerprintsAndVulnerabilities(http_link_message,
+                                                                               wappalyzer_test_agent, agent_mock,
+                                                                               agent_persist_mock, fp):
+    """Ensure wappalyzer agent emits the correct vulnerabilities, and library out message for a link input message.
+    Also ensures the correct compute of the port and schema from the target link: Case of http schema.
+    """
+    del agent_persist_mock
+    fp.register('node src/drivers/npm/cli.js http://ostorlab.co',
+                stdout=OUPUT)
+    wappalyzer_test_agent.start()
+    wappalyzer_test_agent.process(http_link_message)
+    assert len(agent_mock) > 0
+    assert 'v3.report.vulnerability' in [a.selector for a in agent_mock]
+    assert 'v3.fingerprint.domain_name.service.library' in [a.selector for a in agent_mock]
+    assert any(out_msg.data.get('port') == 80 and out_msg.data.get('schema') == 'http' for out_msg in agent_mock)
+
+
+def testAgentWappalyzer_whenFTPLinkAsset_returnFingerprintsAndVulnerabilities(ftp_link_message, wappalyzer_test_agent,
+                                                                              agent_mock, agent_persist_mock, fp):
+    """Ensure wappalyzer agent emits the correct vulnerabilities, and library out message for a link input message.
+    Also ensures the correct compute of the port and schema from the target link: Case of ftp schema.
+    """
+    del agent_persist_mock
+    fp.register('node src/drivers/npm/cli.js ftp://ostorlab.co',
+                stdout=OUPUT)
+    wappalyzer_test_agent.start()
+    wappalyzer_test_agent.process(ftp_link_message)
+    assert len(agent_mock) > 0
+    assert 'v3.report.vulnerability' in [a.selector for a in agent_mock]
+    assert 'v3.fingerprint.domain_name.service.library' in [a.selector for a in agent_mock]
+    assert any(out_msg.data.get('port') == 21 and out_msg.data.get('schema') == 'ftp' for out_msg in agent_mock)
