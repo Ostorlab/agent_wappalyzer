@@ -63,8 +63,9 @@ license: Apache-2.0
 source: https://github.com/Ostorlab/agent_wappalyzer
 in_selectors:
  - v3.asset.domain_name
+ - v3.asset.link
 out_selectors:
- - v3.fingerprint.domain_name.library
+ - v3.fingerprint.domain_name.service.library
  - v3.report.vulnerability
 docker_file_path : Dockerfile
 docker_build_root : .
