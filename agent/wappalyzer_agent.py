@@ -2,6 +2,8 @@
 import json
 import logging
 import subprocess
+from urllib import parse
+import dataclasses
 from typing import Optional, Dict
 
 from ostorlab.agent import agent, definitions as agent_definitions
@@ -28,9 +30,18 @@ VULNZ_DESCRIPTION = """Lists web technologies including content management syste
 statistic/analytics packages, JavaScript libraries, web servers, embedded devices, version numbers, email addresses,
 account IDs, web framework modules, SQL errors, and more."""
 DEFAULT_FINGERPRINT = 'BACKEND_COMPONENT'
-LIB_SELECTOR = 'v3.fingerprint.domain_name.library'
+LIB_SELECTOR = 'v3.fingerprint.domain_name.service.library'
 
 CWD = '/wappalyzer'
+SCHEME_TO_PORT = {'http': 80, 'https': 443, 'ftp': 21}
+
+
+@dataclasses.dataclass
+class Target:
+    url: str
+    domain: str
+    port: Optional[int] = None
+    schema: Optional[str] = None
 
 
 class AgentWappalyzer(agent.Agent, agent_report_vulnerability_mixin.AgentReportVulnMixin,
@@ -42,6 +53,8 @@ class AgentWappalyzer(agent.Agent, agent_report_vulnerability_mixin.AgentReportV
         agent.Agent.__init__(self, agent_definition, agent_settings)
         agent_report_vulnerability_mixin.AgentReportVulnMixin.__init__(self)
         persist_mixin.AgentPersistMixin.__init__(self, agent_settings)
+        self._port = self.args.get('port')
+        self._is_https = self.args.get('https')
 
     def process(self, message: m.Message) -> None:
         """Starts a Wappalyzer scan, wait for the scan to finish,
@@ -52,28 +65,52 @@ class AgentWappalyzer(agent.Agent, agent_report_vulnerability_mixin.AgentReportV
         logger.info('processing message of selector : %s', message.selector)
         target = self._prepare_target(message)
 
-        if not self.set_add(b'agent_wappalyzer_asset', target):
-            logger.info('target %s/ was processed before, exiting', target)
+        if not self.set_add(b'agent_wappalyzer_asset', target.url):
+            logger.info('target %s/ was processed before, exiting', target.url)
             return
 
-        fingerprints = self._start_scan(target)
+        fingerprints = self._start_scan(target.url)
         if fingerprints is not None:
             self._parse_emit_result(target, fingerprints)
 
-    def _prepare_target(self, message: m.Message) -> str:
-        """Prepare targets based on type, if a domain name is provided, port and protocol are collected from the config.
-        """
-        domain_name = message.data.get('name')
-        https = self.args.get('https')
-        port = self.args.get('port')
-        if https is True and port != 443:
-            return f'https://{domain_name}:{port}'
-        elif https is True:
+    def _prepare_target(self, message: m.Message) -> Target:
+        """Prepare targets based on type, if a domain name is provided,
+        port and protocol are collected from the config."""
+        if message.selector.endswith('.link'):
+            url = message.data['url']
+            schema, port = self._get_url_schema_port(url)
+            target = Target(url=url, domain = parse.urlparse(url).netloc, schema=schema, port=port)
+        elif message.selector.endswith('.domain_name'):
+            url = self._prepare_url_from_domain(message.data['name'])
+            schema, port = self._get_url_schema_port(url)
+            target = Target(url=url, domain=message.data['name'], schema=schema, port=port)
+        else:
+            raise NotImplementedError(f'Message selector {message.selector} not supported.')
+
+        return target
+
+    def _prepare_url_from_domain(self, domain_name: str) -> str:
+        """Compute URL from a domain name, port and schema arguments."""
+        if self._is_https is True and self._port != 443:
+            return f'https://{domain_name}:{self._port}'
+        elif self._is_https is True:
             return f'https://{domain_name}'
-        elif port == 80:
+        elif self._port == 80:
             return f'http://{domain_name}'
         else:
-            return f'http://{domain_name}:{port}'
+            return f'http://{domain_name}:{self._port}'
+
+    def _get_url_schema_port(self, url: str) -> tuple:
+        """Compute schema and port from an URL"""
+        parsed_url = parse.urlparse(url)
+        schema = parsed_url.scheme
+        arg_schema = 'https' if self._is_https is True else 'http'
+        schema = schema or arg_schema
+        port = 0
+        if len(parsed_url.netloc.split(':')) > 1:
+            port = parsed_url.netloc.split(':')[-1]
+        port = int(port) or SCHEME_TO_PORT.get(schema) or self._port
+        return schema, port
 
     def _start_scan(self, url: str) -> Optional[Dict]:
         """Run a Wappalyzer scan using python subprocess.
@@ -88,7 +125,7 @@ class AgentWappalyzer(agent.Agent, agent_report_vulnerability_mixin.AgentReportV
         else:
             return None
 
-    def _parse_emit_result(self, url: str, fingerprints: Dict):
+    def _parse_emit_result(self, target: Target, fingerprints: Dict):
         """After the scan is done, parse the output json file into a dict of the scan findings."""
         for tech in fingerprints.get('technologies', []):
             name = tech.get('name')
@@ -98,9 +135,10 @@ class AgentWappalyzer(agent.Agent, agent_report_vulnerability_mixin.AgentReportV
                 library_type = categories[0]['name']
             else:
                 library_type = None
-            self._send_detected_fingerprints(url, name, version, library_type)
+            self._send_detected_fingerprints(target, name, version, library_type)
 
-    def _send_detected_fingerprints(self, url: str, name: str, version: Optional[str], library_type: Optional[str]):
+    def _send_detected_fingerprints(self, target: Target, name: str,
+                                    version: Optional[str], library_type: Optional[str]):
         """Emits the identified fingerprints.
         Args:
             url: The URL when fingerprint is collected.
@@ -108,9 +146,12 @@ class AgentWappalyzer(agent.Agent, agent_report_vulnerability_mixin.AgentReportV
             version: The version identified by Wappalyzer scanner.
             library_type: The first category returned the Wappalyzer scanner.
         """
+        url = target.url
         logger.info('found fingerprint %s %s %s %s', url, name, version, library_type)
         msg_data = {
-            'domain_name': url,
+            'name': url,
+            'port': target.port,
+            'schema': target.schema,
             'library_name': name,
             'library_version': version or '',
             'library_type': library_type or '',
