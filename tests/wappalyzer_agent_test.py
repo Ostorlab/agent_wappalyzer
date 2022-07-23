@@ -40,7 +40,7 @@ def testAgentWappalyzer_whenDomainNameAsset_returnFingerprintsAndVulnerabilities
                                                                                  agent_mock, agent_persist_mock, fp):
     """Tests running the agent and emitting vulnerabilities for a domain asset."""
     del agent_persist_mock
-    fp.register('node src/drivers/npm/cli.js https://test.ostorlab.co',
+    fp.register('node src/drivers/npm/cli.js https://test.ostorlab.co:443',
                 stdout=OUPUT)
     wappalyzer_test_agent.start()
     wappalyzer_test_agent.process(domain_message)
@@ -53,7 +53,7 @@ def testAgentWappalyzer_whenDomainAlreadyScans_doNothing(domain_message, wappaly
                                                          agent_persist_mock, fp):
     """Ensure wappalyzer agent does not process the same message multiple times."""
     del agent_persist_mock
-    fp.register('node src/drivers/npm/cli.js https://test.ostorlab.co',
+    fp.register('node src/drivers/npm/cli.js https://test.ostorlab.co:443',
                 stdout=OUPUT)
     wappalyzer_test_agent.start()
     wappalyzer_test_agent.process(domain_message)
@@ -95,19 +95,3 @@ def testAgentWappalyzer_whenHTTPLinkAsset_returnFingerprintsAndVulnerabilities(h
     assert 'v3.report.vulnerability' in [a.selector for a in agent_mock]
     assert 'v3.fingerprint.domain_name.service.library' in [a.selector for a in agent_mock]
     assert any(out_msg.data.get('port') == 80 and out_msg.data.get('schema') == 'http' for out_msg in agent_mock)
-
-
-def testAgentWappalyzer_whenFTPLinkAsset_returnFingerprintsAndVulnerabilities(ftp_link_message, wappalyzer_test_agent,
-                                                                              agent_mock, agent_persist_mock, fp):
-    """Ensure wappalyzer agent emits the correct vulnerabilities, and library out message for a link input message.
-    Also ensures the correct compute of the port and schema from the target link: Case of ftp schema.
-    """
-    del agent_persist_mock
-    fp.register('node src/drivers/npm/cli.js ftp://ostorlab.co',
-                stdout=OUPUT)
-    wappalyzer_test_agent.start()
-    wappalyzer_test_agent.process(ftp_link_message)
-    assert len(agent_mock) > 0
-    assert 'v3.report.vulnerability' in [a.selector for a in agent_mock]
-    assert 'v3.fingerprint.domain_name.service.library' in [a.selector for a in agent_mock]
-    assert any(out_msg.data.get('port') == 21 and out_msg.data.get('schema') == 'ftp' for out_msg in agent_mock)

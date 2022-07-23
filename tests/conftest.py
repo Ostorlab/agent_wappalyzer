@@ -44,17 +44,6 @@ def http_link_message():
     }
     return message.Message.from_data(selector, data=msg_data)
 
-@pytest.fixture
-def ftp_link_message():
-    """Creates a dummy message of type v3.asset.link to be used by the agent for testing purposes.
-    """
-    selector = 'v3.asset.link'
-    msg_data = {
-        'url': 'ftp://ostorlab.co',
-        'method': 'GET'
-    }
-    return message.Message.from_data(selector, data=msg_data)
-
 
 @pytest.fixture
 def wappalyzer_test_agent():
