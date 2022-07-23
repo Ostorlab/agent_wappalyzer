@@ -33,7 +33,7 @@ DEFAULT_FINGERPRINT = 'BACKEND_COMPONENT'
 LIB_SELECTOR = 'v3.fingerprint.domain_name.service.library'
 
 CWD = '/wappalyzer'
-SCHEME_TO_PORT = {'http': 80, 'https': 443, 'ftp': 21}
+SCHEME_TO_PORT = {'http': 80, 'https': 443}
 
 
 @dataclasses.dataclass
@@ -76,41 +76,43 @@ class AgentWappalyzer(agent.Agent, agent_report_vulnerability_mixin.AgentReportV
     def _prepare_target(self, message: m.Message) -> Target:
         """Prepare targets based on type, if a domain name is provided,
         port and protocol are collected from the config."""
-        if message.selector.endswith('.link'):
-            url = message.data['url']
-            schema, port = self._get_url_schema_port(url)
-            target = Target(url=url, domain = parse.urlparse(url).netloc, schema=schema, port=port)
-        elif message.selector.endswith('.domain_name'):
-            url = self._prepare_url_from_domain(message.data['name'])
-            schema, port = self._get_url_schema_port(url)
-            target = Target(url=url, domain=message.data['name'], schema=schema, port=port)
+        if message.data.get('url'):
+            target = self._prepare_target_from_link_msg(message)
+        elif message.data.get('name'):
+            target = self._prepare_target_from_domain_msg(message)
         else:
             raise NotImplementedError(f'Message selector {message.selector} not supported.')
 
         return target
 
-    def _prepare_url_from_domain(self, domain_name: str) -> str:
-        """Compute URL from a domain name, port and schema arguments."""
-        if self._is_https is True and self._port != 443:
-            return f'https://{domain_name}:{self._port}'
-        elif self._is_https is True:
-            return f'https://{domain_name}'
-        elif self._port == 80:
-            return f'http://{domain_name}'
+    def _prepare_target_from_domain_msg(self, domain_message: m.Message) -> Target:
+        """Prepare target from domain message."""
+        if self._is_https is True:
+            schema = 'https'
+            port = self._port if self._port != 443 else 443
         else:
-            return f'http://{domain_name}:{self._port}'
+            schema = 'http'
+            port = self._port if self._port != 80 else 80
+        domain_name = domain_message.data['name']
+        url = f'{schema}://{domain_name}:{port}'
+        target = Target(url=url, domain=domain_name, schema=schema, port=port)
+        return target
 
-    def _get_url_schema_port(self, url: str) -> tuple:
-        """Compute schema and port from an URL"""
+    def _prepare_target_from_link_msg(self, url_message: m.Message) -> tuple:
+        """Prepare target from link message."""
+        url = url_message.data['url']
         parsed_url = parse.urlparse(url)
         schema = parsed_url.scheme
         arg_schema = 'https' if self._is_https is True else 'http'
         schema = schema or arg_schema
         port = 0
+        domain_name = parsed_url.netloc
         if len(parsed_url.netloc.split(':')) > 1:
             port = parsed_url.netloc.split(':')[-1]
+            domain_name = parsed_url.netloc.split(':')[0]
         port = int(port) or SCHEME_TO_PORT.get(schema) or self._port
-        return schema, port
+        target = Target(url=url, domain=domain_name, schema=schema, port=port)
+        return target
 
     def _start_scan(self, url: str) -> Optional[Dict]:
         """Run a Wappalyzer scan using python subprocess.
