@@ -11,7 +11,7 @@ from agent import wappalyzer_agent
 
 
 @pytest.fixture
-def scan_message():
+def domain_message():
     """Creates a dummy message of type v3.asset.domain_name to be used by the agent for testing purposes.
     """
     selector = 'v3.asset.domain_name'
@@ -22,7 +22,31 @@ def scan_message():
 
 
 @pytest.fixture
-def test_agent():
+def https_link_message():
+    """Creates a dummy message of type v3.asset.link to be used by the agent for testing purposes.
+    """
+    selector = 'v3.asset.link'
+    msg_data = {
+        'url': 'https://ostorlab.co',
+        'method': 'GET'
+    }
+    return message.Message.from_data(selector, data=msg_data)
+
+
+@pytest.fixture
+def http_link_message():
+    """Creates a dummy message of type v3.asset.link to be used by the agent for testing purposes.
+    """
+    selector = 'v3.asset.link'
+    msg_data = {
+        'url': 'http://ostorlab.co',
+        'method': 'GET'
+    }
+    return message.Message.from_data(selector, data=msg_data)
+
+
+@pytest.fixture
+def wappalyzer_test_agent():
     with (pathlib.Path(__file__).parent.parent / 'ostorlab.yaml').open() as yaml_o:
         definition = agent_definitions.AgentDefinition.from_yaml(yaml_o)
         settings = runtime_definitions.AgentSettings(
